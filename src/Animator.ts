@@ -90,6 +90,7 @@ export class Animator<P extends Record<string, any>> {
 		this._progress = 0
 		this.startTime = Animator.time
 		Animator.runningSet.add(this)
+		state.setup?.(this)
 		this.onStateChange?.(initialState)
 	}
 
@@ -138,6 +139,11 @@ export class Animator<P extends Record<string, any>> {
 				const nextState = this.states[nextStateName]
 				if (!nextState) {
 					throw new Error(`could not find state ${nextStateName}`)
+				}
+				// ensure final animation frame was executed
+				if (this._progress != 1) {
+					this._progress = 1
+					state.animation(this)
 				}
 				if (this.running) {
 					this.startTime += state.duration + state.delayBefore + state.delayAfter
