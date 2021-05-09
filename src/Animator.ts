@@ -92,6 +92,7 @@ export class Animator<P extends Record<string, any>> {
 		Animator.runningSet.add(this)
 		state.setup?.(this)
 		this.onStateChange?.(initialState)
+		return this
 	}
 
 	public stop() {
