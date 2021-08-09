@@ -17,7 +17,7 @@ const transitions = {
 	easeInOut: BezierEasing(0.43, 0, 0.58, 1)
 } as const
 
-interface State<P> {
+export interface State<P> {
 	duration: number
 	delayBefore: number
 	delayAfter: number
@@ -28,17 +28,23 @@ interface State<P> {
 }
 
 export class Animator<P extends Record<string, any>> {
+	public readonly states: Record<string, State<P>>
+
 	private static runningSet: Set<Animator<any>> = new Set()
 	private static time = 0
 
 	private startTime: number
-	private states: Record<string, State<P>>
+
 	private state: State<P> | null
 	private running: boolean
 	private _started: boolean
 	private _progress: number
 	public readonly parameters: P
 	public onStateChange?: (state: string | null) => void
+
+	public static BezierEasing(x1: number, y1: number, x2: number, y2: number) {
+		return BezierEasing(x1, y1, x2, y2)
+	}
 
 	public constructor(states: Record<string, Partial<State<P>>>, parameters?: P) {
 		if (states.stop) {
@@ -177,12 +183,14 @@ export class Animator<P extends Record<string, any>> {
 				progress = 1
 			}
 		}
-		this._progress = progress
-		state.animation(this)
+		if (state.delayBefore <= (current - this.startTime)) {
+			this._progress = progress
+			state.animation(this)
+		}
 	}
 
-	public interpolate(from: number, to: number, func: keyof typeof transitions = "easeInOut") {
-		return from + (to - from) * transitions[func](this._progress)
+	public interpolate(from: number, to: number, func: keyof typeof transitions | BezierEasing.EasingFunction = "easeInOut") {
+		return from + (to - from) * (typeof func == "string" ? transitions[func] : func)(this._progress)
 	}
 
 	public steps<T>(steps: {progress: number, value: T}[]) {
@@ -193,4 +201,13 @@ export class Animator<P extends Record<string, any>> {
 		}
 		return steps[0].value
 	}
+
+	public get currentState() {
+		if (!this.state) {
+			throw new Error("no running")
+		}
+		return this.state
+	}
 }
+
+export default Animator
