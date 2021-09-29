@@ -2,48 +2,80 @@
 
 import * as BezierEasing from "bezier-easing"
 
-const transitions = {
-	linear: (x: number) => x,
-	easeIn: BezierEasing(0.43, 0, 1, 1),
-	easeInSine: BezierEasing(0.47, 0, 0.74, 0.71),
-	easeInQuadratic: BezierEasing(0.55, 0.09, 0.68, 0.53),
-	easeInCubic: BezierEasing(0.55, 0.06, 0.68, 0.19),
-	easeInQuartic: BezierEasing(.9,.03,.69,.22),
-	easeInQuintic: BezierEasing(.76,.05,.86,.06),
-	easeInExponential: BezierEasing(.95,.05,.8,.04),
-	easeInCircular: BezierEasing(0.6, 0.04, 0.98, 0.34),
-	easeInBackward: BezierEasing(0.6, -0.28, 0.74, 0.05),
-	easeOut: BezierEasing(0, 0, 0.58, 1),
-	easeInOut: BezierEasing(0.43, 0, 0.58, 1)
-} as const
-
 export interface State<P> {
 	duration: number
 	delayBefore: number
 	delayAfter: number
 	loop: boolean
 	transition: string | ((context: Animator<P>) => string | false)
+	interrupt?: ((context: Animator<P>) => string | false)
 	animation: (context: Animator<P>) => void
 	setup?: (context: Animator<P>) => void
 }
 
-export class Animator<P extends Record<string, any>> {
-	public readonly states: Record<string, State<P>>
+export type TransitionName = keyof typeof Animator["transitions"]
+
+type InternalState<P> = State<P> & {name: string}
+
+export class Animator<P extends Record<string, any> = Record<string, any>> {
+	public readonly states: Record<string, InternalState<P>>
+
+	public static readonly transitions = {
+		// easeIn
+		easeIn: BezierEasing(0.43, 0, 1, 1),
+		easeInSine: BezierEasing(0.47, 0, 0.74, 0.71),
+		easeInQuadratic: BezierEasing(0.55, 0.09, 0.68, 0.53),
+		easeInCubic: BezierEasing(0.55, 0.06, 0.68, 0.19),
+		easeInQuartic: BezierEasing(.9,.03,.69,.22),
+		easeInQuintic: BezierEasing(.76,.05,.86,.06),
+		easeInExponential: BezierEasing(.95,.05,.8,.04),
+		easeInCircular: BezierEasing(0.6, 0.04, 0.98, 0.34),
+		easeInBackward: BezierEasing(0.6, -0.28, 0.74, 0.05),
+		// easeOut
+		easeOut: BezierEasing(0, 0, 0.58, 1),
+		easeOutSine: BezierEasing(0.39, 0.575, 0.565, 1),
+		easeOutQuadratic: BezierEasing(0.25, 0.46, 0.45, 0.94),
+		easeOutCubic: BezierEasing(0.215, 0.61, 0.355, 1),
+		easeOutQuartic: BezierEasing(0.165, 0.84, 0.44, 1),
+		easeOutQuintic: BezierEasing(0.23, 1, 0.32, 1),
+		easeOutExponential: BezierEasing(0.19, 1, 0.22, 1),
+		easeOutCircular: BezierEasing(0.075, 0.82, 0.165, 1),
+		easeOutBackward: BezierEasing(0.175, 0.885, 0.32, 1.275),
+		// other
+		linear: (x: number) => x,
+		easeInOut: BezierEasing(0.43, 0, 0.58, 1),
+		easeInOutBackward: BezierEasing(0.68, -0.55, 0.265, 1.55)
+	} as const
 
 	private static runningSet: Set<Animator<any>> = new Set()
-	private static time = 0
+	private static _time = 0
+	private static _delta = 0
 
 	private startTime: number
 
-	private state: State<P> | null
-	private running: boolean
+	private state: InternalState<P> | null
+	private animating: boolean
+	private _running: boolean
 	private _started: boolean
+	private _paused: boolean
 	private _progress: number
 	public readonly parameters: P
 	public onStateChange?: (state: string | null) => void
 
-	public static BezierEasing(x1: number, y1: number, x2: number, y2: number) {
+	public static createEasingFunction(x1: number, y1: number, x2: number, y2: number) {
 		return BezierEasing(x1, y1, x2, y2)
+	}
+
+	public static easeValue(value: number, func: keyof typeof Animator["transitions"]) {
+		return this.transitions[func](value)
+	}
+
+	public static get time() {
+		return this._time
+	}
+
+	public static get delta() {
+		return this._delta
 	}
 
 	public constructor(states: Record<string, Partial<State<P>>>, parameters?: P) {
@@ -53,6 +85,7 @@ export class Animator<P extends Record<string, any>> {
 		this.states = {}
 		for (const key in states) {
 			this.states[key] = {
+				name: key,
 				duration: 0,
 				delayAfter: 0,
 				delayBefore: 0,
@@ -62,8 +95,10 @@ export class Animator<P extends Record<string, any>> {
 				...states[key]
 			}
 		}
-		this.running = false
+		this.animating = false
 		this._started = false
+		this._running = false
+		this._paused = false
 		this._progress = 0
 		this.startTime = 0
 		this.state = null
@@ -82,40 +117,63 @@ export class Animator<P extends Record<string, any>> {
 		return this._started
 	}
 
+	public get running() {
+		return this._running
+	}
+
+	public get paused() {
+		return this._paused
+	}
+
+	public pause() {
+		if (this._started && !this._paused) {
+			Animator.runningSet.delete(this)
+			this._paused = true
+		}
+	}
+
+	public resume() {
+		if (this._paused) {
+			Animator.runningSet.add(this)
+			this._paused = false
+		}
+	}
+
 	public start(initialState = "initial") {
-		if (this._started) {
-			throw new Error("already running")
+		if (!this._started || this._paused) {
+			this._paused = false
+			this.state = this.states[initialState]
+			if (!this.state) {
+				throw new Error(`state initial "${initialState}" not found`)
+			}
+			this._started = true
+			this._running = false
+			Animator.runningSet.add(this)
 		}
-		const state = this.states[initialState]
-		if (!state) {
-			throw new Error(`state initial "${initialState}" not found`)
-		}
-		this.state = state
-		this.running = true
-		this._started = true
-		this._progress = 0
-		this.startTime = Animator.time
-		Animator.runningSet.add(this)
-		state.setup?.(this)
-		this.onStateChange?.(initialState)
 		return this
 	}
 
-	public stop() {
+	public stop(noStateChangeEvent = false) {
 		if (this._started) {
+			this._paused = false
 			Animator.runningSet.delete(this)
 			this._started = false
+			this._running = false
 			if (this.state) {
 				this.state = null
-				this.onStateChange?.(null)
+				if (!noStateChangeEvent) {
+					this.onStateChange?.(null)
+				}
 			}
 		}
+		return this
 	}
 
 	public static update(delta: number) {
-		Animator.time += delta
+		Animator._time += delta
+		Animator._delta = delta
 		if (Animator.runningSet.size > 0) {
-			Animator.runningSet.forEach(x => x.update(Animator.time))
+			Animator.runningSet.forEach(x => x.update(Animator._time))
 		}
 	}
 
@@ -123,74 +181,98 @@ export class Animator<P extends Record<string, any>> {
 		if (!this._started) {
 			throw new Error("not running")
 		}
-		let state = this.state!
-		if (state.delayBefore > (current - this.startTime)) {
-			return
+		if (!this._running) {
+			this._running = true
+			this.startTime = current
+			this.animating = true
+			this._started = true
+			this._progress = 0
+			this.state!.setup?.(this)
+			this.onStateChange?.(this.state!.name)
 		}
-		let progress = state.duration ? (current - (this.startTime + state.delayBefore)) / state.duration : 1
-		if (!this.running || (progress >= 1)) {
-			if (current - (this.startTime + state.delayBefore + state.duration) < state.delayAfter) {
-				if (this._progress != 1) {
-					this._progress = 1
-					state.animation(this)
-				}
+		let iterationLimit = 1024
+		while (true) {
+			iterationLimit -= 1
+			if (!iterationLimit) {
+				throw new Error("animator iteration limit reached, endless loop?")
+			}
+			const state = this.state!
+			if (state.delayBefore > (current - this.startTime)) {
 				return
 			}
-			const nextStateName = typeof state.transition == "string" ? state.transition : state.transition(this)
-			if (nextStateName == "stop") {
-				this._progress = 1
-				state.animation(this)
-				this.stop()
-				return
-			} else if (nextStateName) {
-				const nextState = this.states[nextStateName]
-				if (!nextState) {
-					throw new Error(`could not find state ${nextStateName}`)
-				}
-				// ensure final animation frame was executed
+			let progress = state.duration ? (current - (this.startTime + state.delayBefore)) / state.duration : Infinity
+			if (!this.animating || (progress >= 1)) {
 				if (this._progress != 1) {
 					this._progress = 1
 					state.animation(this)
 				}
-				if (this.running) {
-					this.startTime += state.duration + state.delayBefore + state.delayAfter
-					progress = Math.max(0, nextState.duration ? (current - (this.startTime + state.delayBefore)) / nextState.duration : 0)
-				} else {
-					this.startTime = current
-					progress = 0
-				}
-				this.state = nextState
-				state = nextState
-				nextState.setup?.(this)
-				this.onStateChange?.(nextStateName)
-				// the callback could have called stop()
-				if (!this._started) {
+				if (current - (this.startTime + state.delayBefore + state.duration) < state.delayAfter) {
 					return
 				}
-				this.running = true
-			}
-		}
-		if (!this.running) {
-			return
-		}
-		if (progress >= 1) {
-			if (state.loop) {
-				const delta = (current - this.startTime - state.delayBefore) % state.duration
-				this.startTime = current - delta
-				progress = delta / state.duration
+				const nextStateName = typeof state.transition == "string" ? state.transition : state.transition(this)
+				if (nextStateName == "stop") {
+					this.stop()
+					return
+				} else if (nextStateName) {
+					const nextState = this.states[nextStateName]
+					if (!nextState) {
+						throw new Error(`could not find state ${nextStateName}`)
+					}
+					this._progress = 0
+					if (this.animating) {
+						this.startTime += state.duration + state.delayBefore + state.delayAfter
+					} else {
+						this.startTime = current
+					}
+					this.state = nextState
+					nextState.setup?.(this)
+					this.onStateChange?.(nextStateName)
+					// the callback could have called stop()
+					if (!this._started) {
+						return
+					}
+					this.animating = true
+					continue
+				} else if (state.loop && state.duration) {
+					this._progress = 0
+					this.startTime += state.duration + state.delayAfter
+					continue
+				} else {
+					this.animating = false
+				}
 			} else {
-				this.running = false
-				progress = 1
+				if (state.interrupt) {
+					const nextStateName = state.interrupt(this)
+					if (nextStateName == "stop") {
+						this.stop()
+						return
+					} else if (nextStateName) {
+						const nextState = this.states[nextStateName]
+						if (!nextState) {
+							throw new Error(`could not find state ${nextStateName}`)
+						}
+						this._progress = 0
+						this.startTime = current
+						this.state = nextState
+						nextState.setup?.(this)
+						this.onStateChange?.(nextStateName)
+						// the callback could have called stop()
+						if (!this._started) {
+							return
+						}
+						this.animating = true
+						continue
+					}
+				}
+				this._progress = progress
+				state.animation(this)
 			}
-		}
-		if (state.delayBefore <= (current - this.startTime)) {
-			this._progress = progress
-			state.animation(this)
+			break
 		}
 	}
 
-	public interpolate(from: number, to: number, func: keyof typeof transitions | BezierEasing.EasingFunction = "easeInOut") {
-		return from + (to - from) * (typeof func == "string" ? transitions[func] : func)(this._progress)
+	public interpolate(from: number, to: number, func: keyof typeof Animator["transitions"] | BezierEasing.EasingFunction = "easeInOut") {
+		return from + (to - from) * (typeof func == "string" ? Animator.transitions[func] : func)(this._progress)
 	}
 
 	public steps<T>(steps: {progress: number, value: T}[]) {
@@ -204,7 +286,7 @@ export class Animator<P extends Record<string, any>> {
 
 	public get currentState() {
 		if (!this.state) {
-			throw new Error("no running")
+			throw new Error("not running")
 		}
 		return this.state
 	}

@@ -1,6 +1,6 @@
 {
 	"name": "@md5crypt/animator",
-	"version": "1.0.2",
+	"version": "1.1.0",
 	"description": "unity style animators for js",
 	"main": "lib/Animator.js",
 	"types": "lib/Animator.d.ts",
@@ -18,7 +18,8 @@
 		"build": "tsc",
 		"start": "tsc --watch",
 		"lint": "eslint src/*.ts",
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"link": "mkdir link; mkdir -p lib; cd link; ln -s ../lib .; ln -s ../package.json ."
 	},
 	"author": "Marek Korzeniowski",
 	"license": "MIT",
