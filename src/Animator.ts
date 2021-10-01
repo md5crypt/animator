@@ -17,6 +17,34 @@ export type TransitionName = keyof typeof Animator["transitions"]
 
 type InternalState<P> = State<P> & {name: string}
 
+class Listener<T extends (...args: any[]) => void = () => void> {
+	private list: T[] = []
+
+	public add(listener: T) {
+		this.list.push(listener)
+		return listener
+	}
+
+	public remove(listener: T) {
+		const i = this.list.indexOf(listener)
+		if (i >= 0) {
+			this.list.splice(i, 1)
+			return true
+		}
+		return false
+	}
+
+	public clear() {
+		this.list = []
+	}
+
+	public invoke(...args: Parameters<T>) {
+		for (let i = 0; i < this.list.length; i++) {
+			(this.list[i] as Function)(...args)
+		}
+	}
+}
+
 export class Animator<P extends Record<string, any> = Record<string, any>> {
 	public readonly states: Record<string, InternalState<P>>
 
@@ -60,7 +88,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 	private _paused: boolean
 	private _progress: number
 	public readonly parameters: P
-	public onStateChange?: (state: string | null) => void
+	public readonly onStateChange: Listener<(state: string) => void>
 
 	public static createEasingFunction(x1: number, y1: number, x2: number, y2: number) {
 		return BezierEasing(x1, y1, x2, y2)
@@ -76,6 +104,16 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 
 	public static get delta() {
 		return this._delta
+	}
+
+	public static testState(state: string, query: string | RegExp | ((name: string | null) => void) = "stop") {
+		if (typeof query == "string") {
+			return query == state
+		} else if (query instanceof RegExp) {
+			return query.test(state)
+		} else {
+			return query(state)
+		}
 	}
 
 	public constructor(states: Record<string, Partial<State<P>>>, parameters?: P) {
@@ -102,6 +140,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 		this._progress = 0
 		this.startTime = 0
 		this.state = null
+		this.onStateChange = new Listener()
 		if (parameters) {
 			this.parameters = parameters
 		} else {
@@ -162,7 +201,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 			if (this.state) {
 				this.state = null
 				if (!noStateChangeEvent) {
-					this.onStateChange?.(null)
+					this.onStateChange.invoke("stop")
 				}
 			}
 		}
@@ -187,8 +226,11 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 			this.animating = true
 			this._started = true
 			this._progress = 0
-			this.state!.setup?.(this)
-			this.onStateChange?.(this.state!.name)
+			if (!this.state) {
+				throw new Error("state is missing")
+			}
+			this.state.setup?.(this)
+			this.onStateChange.invoke(this.state.name)
 		}
 		let iterationLimit = 1024
 		while (true) {
@@ -226,7 +268,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 					}
 					this.state = nextState
 					nextState.setup?.(this)
-					this.onStateChange?.(nextStateName)
+					this.onStateChange.invoke(nextStateName)
 					// the callback could have called stop()
 					if (!this._started) {
 						return
@@ -255,7 +297,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 						this.startTime = current
 						this.state = nextState
 						nextState.setup?.(this)
-						this.onStateChange?.(nextStateName)
+						this.onStateChange.invoke(nextStateName)
 						// the callback could have called stop()
 						if (!this._started) {
 							return
@@ -289,6 +331,20 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 			throw new Error("not running")
 		}
 		return this.state
+	}
+
+	public waitForState(query: string | RegExp | ((name: string | null) => void) = "stop") {
+		if (Animator.testState(this.state ? this.state.name : "stop", query)) {
+			return Promise.resolve()
+		}
+		return new Promise<void>(resolve => {
+			const callback = this.onStateChange.add(state => {
+				if (Animator.testState(state, query)) {
+					this.onStateChange.remove(callback)
+					resolve()
+				}
+			})
+		})
 	}
 }
 
