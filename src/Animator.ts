@@ -1,49 +1,22 @@
 /* (C) 2021 Marek Korzeniowski, distributed under the MIT License */
 
 import * as BezierEasing from "bezier-easing"
+import Listener from "@md5crypt/listener"
 
 export interface State<P> {
 	duration: number
 	delayBefore: number
 	delayAfter: number
 	loop: boolean
-	transition: string | ((context: Animator<P>) => string | false)
-	interrupt?: ((context: Animator<P>) => string | false)
-	animation: (context: Animator<P>) => void
-	setup?: (context: Animator<P>) => void
+	transition: string | ((context: Animator<P>, params: P) => string | false)
+	interrupt?: ((context: Animator<P>, params: P) => string | false)
+	animation: (context: Animator<P>, params: P) => void
+	setup?: (context: Animator<P>, params: P) => void
 }
 
 export type TransitionName = keyof typeof Animator["transitions"]
 
 type InternalState<P> = State<P> & {name: string}
-
-class Listener<T extends (...args: any[]) => void = () => void> {
-	private list: T[] = []
-
-	public add(listener: T) {
-		this.list.push(listener)
-		return listener
-	}
-
-	public remove(listener: T) {
-		const i = this.list.indexOf(listener)
-		if (i >= 0) {
-			this.list.splice(i, 1)
-			return true
-		}
-		return false
-	}
-
-	public clear() {
-		this.list = []
-	}
-
-	public invoke(...args: Parameters<T>) {
-		for (let i = 0; i < this.list.length; i++) {
-			(this.list[i] as Function)(...args)
-		}
-	}
-}
 
 export class Animator<P extends Record<string, any> = Record<string, any>> {
 	public readonly states: Record<string, InternalState<P>>
@@ -229,7 +202,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 			if (!this.state) {
 				throw new Error("state is missing")
 			}
-			this.state.setup?.(this)
+			this.state.setup?.(this, this.parameters)
 			this.onStateChange.invoke(this.state.name)
 		}
 		let iterationLimit = 1024
@@ -246,12 +219,12 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 			if (!this.animating || (progress >= 1)) {
 				if (this._progress != 1) {
 					this._progress = 1
-					state.animation(this)
+					state.animation(this, this.parameters)
 				}
 				if (current - (this.startTime + state.delayBefore + state.duration) < state.delayAfter) {
 					return
 				}
-				const nextStateName = typeof state.transition == "string" ? state.transition : state.transition(this)
+				const nextStateName = typeof state.transition == "string" ? state.transition : state.transition(this, this.parameters)
 				if (nextStateName == "stop") {
 					this.stop()
 					return
@@ -267,7 +240,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 						this.startTime = current
 					}
 					this.state = nextState
-					nextState.setup?.(this)
+					nextState.setup?.(this, this.parameters)
 					this.onStateChange.invoke(nextStateName)
 					// the callback could have called stop()
 					if (!this._started) {
@@ -284,7 +257,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 				}
 			} else {
 				if (state.interrupt) {
-					const nextStateName = state.interrupt(this)
+					const nextStateName = state.interrupt(this, this.parameters)
 					if (nextStateName == "stop") {
 						this.stop()
 						return
@@ -296,7 +269,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 						this._progress = 0
 						this.startTime = current
 						this.state = nextState
-						nextState.setup?.(this)
+						nextState.setup?.(this, this.parameters)
 						this.onStateChange.invoke(nextStateName)
 						// the callback could have called stop()
 						if (!this._started) {
@@ -307,7 +280,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 					}
 				}
 				this._progress = progress
-				state.animation(this)
+				state.animation(this, this.parameters)
 			}
 			break
 		}
