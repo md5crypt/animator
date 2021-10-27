@@ -79,7 +79,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 		return this._delta
 	}
 
-	public static testState(state: string, query: string | RegExp | ((name: string | null) => void) = "stop") {
+	public static testState(state: string, query: string | RegExp | ((name: string) => void) = "stop") {
 		if (typeof query == "string") {
 			return query == state
 		} else if (query instanceof RegExp) {
@@ -141,6 +141,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 		if (this._started && !this._paused) {
 			Animator.runningSet.delete(this)
 			this._paused = true
+			this.onStateChange.invoke("pause")
 		}
 	}
 
@@ -228,6 +229,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 				if (nextStateName == "stop") {
 					this.stop()
 					return
+				} else if (nextStateName == "pause") {
+					this.animating = false
+					this.pause()
+					return
 				} else if (nextStateName) {
 					const nextState = this.states[nextStateName]
 					if (!nextState) {
@@ -306,7 +311,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 		return this.state
 	}
 
-	public waitForState(query: string | RegExp | ((name: string | null) => void) = "stop") {
+	public waitForState(query: string | RegExp | ((name: string) => void) = "stop") {
+		if (this._paused && Animator.testState(this.state!.name, query)) {
+			return Promise.resolve()
+		}
 		if (Animator.testState(this.state ? this.state.name : "stop", query)) {
 			return Promise.resolve()
 		}
