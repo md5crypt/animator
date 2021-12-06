@@ -247,8 +247,8 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 					this.state = nextState
 					nextState.setup?.(this, this.parameters)
 					this.onStateChange.invoke(nextStateName)
-					// the callback could have called stop()
-					if (!this._started) {
+					// the callback could have called stop() or pause()
+					if (!this._started || this.paused) {
 						return
 					}
 					this.animating = true
@@ -261,10 +261,15 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 					this.animating = false
 				}
 			} else {
+				this._progress = progress
+				state.animation(this, this.parameters)
 				if (state.interrupt) {
 					const nextStateName = state.interrupt(this, this.parameters)
 					if (nextStateName == "stop") {
 						this.stop()
+						return
+					} else if (nextStateName == "pause") {
+						this.pause()
 						return
 					} else if (nextStateName) {
 						const nextState = this.states[nextStateName]
@@ -284,8 +289,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 						continue
 					}
 				}
-				this._progress = progress
-				state.animation(this, this.parameters)
 			}
 			break
 		}
