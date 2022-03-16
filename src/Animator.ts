@@ -3,23 +3,24 @@
 import * as BezierEasing from "bezier-easing"
 import Listener from "@md5crypt/listener"
 
-export interface State<P> {
+export interface State<P, T extends string> {
 	duration: number
 	delayBefore: number
 	delayAfter: number
 	loop: boolean
-	transition: string | ((context: Animator<P>, params: P) => string | false)
-	interrupt?: ((context: Animator<P>, params: P) => string | false)
-	animation: (context: Animator<P>, params: P) => void
-	setup?: (context: Animator<P>, params: P) => void
+	overflow: boolean
+	transition: string | ((context: Animator<P, T>, params: P) => string | false)
+	interrupt?: ((context: Animator<P, T>, params: P) => string | false)
+	animation: (context: Animator<P, T>, params: P) => void
+	setup?: (context: Animator<P, T>, params: P) => void
 }
 
 export type TransitionName = keyof typeof Animator["transitions"]
 
-type InternalState<P> = State<P> & {name: string}
+type InternalState<P, T extends string> = State<P, T> & {name: string}
 
-export class Animator<P extends Record<string, any> = Record<string, any>> {
-	public readonly states: Record<string, InternalState<P>>
+export class Animator<P extends Record<string, any> = Record<string, any>, T extends string = string> {
+	public readonly states: Record<T, InternalState<P, T>>
 
 	public static readonly transitions = {
 		// easeIn
@@ -54,7 +55,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 
 	private startTime: number
 
-	private state: InternalState<P> | null
+	private state: InternalState<P, T> | null
 	private animating: boolean
 	private _running: boolean
 	private _started: boolean
@@ -89,18 +90,22 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 		}
 	}
 
-	public constructor(states: Record<string, Partial<State<P>>>, parameters?: P) {
-		if (states.stop) {
+	public constructor(states: Record<T, Partial<State<P, T>>>, parameters?: P) {
+		if ("stop" in states) {
 			throw new Error("a state can not be called 'stop' as it is a reserved name")
 		}
-		this.states = {}
+		if ("pause" in states) {
+			throw new Error("a state can not be called 'pause' as it is a reserved name")
+		}
+		this.states = {} as any
 		for (const key in states) {
-			this.states[key] = {
+			this.states[key as T] = {
 				name: key,
 				duration: 0,
 				delayAfter: 0,
 				delayBefore: 0,
 				loop: false,
+				overflow: true,
 				transition: () => false,
 				animation: () => {},
 				...states[key]
@@ -155,7 +160,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 	public start(initialState = "initial") {
 		if (!this._started || this._paused) {
 			this._paused = false
-			this.state = this.states[initialState]
+			this.state = this.states[initialState as T]
 			if (!this.state) {
 				throw new Error(`state initial "${initialState}" not found`)
 			}
@@ -234,12 +239,12 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 					this.pause()
 					return
 				} else if (nextStateName) {
-					const nextState = this.states[nextStateName]
+					const nextState = this.states[nextStateName as T]
 					if (!nextState) {
 						throw new Error(`could not find state ${nextStateName}`)
 					}
 					this._progress = 0
-					if (this.animating) {
+					if (this.animating && state.overflow) {
 						this.startTime += state.duration + state.delayBefore + state.delayAfter
 					} else {
 						this.startTime = current
@@ -272,7 +277,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>> {
 						this.pause()
 						return
 					} else if (nextStateName) {
-						const nextState = this.states[nextStateName]
+						const nextState = this.states[nextStateName as T]
 						if (!nextState) {
 							throw new Error(`could not find state ${nextStateName}`)
 						}
