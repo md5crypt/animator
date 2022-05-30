@@ -50,7 +50,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	} as const
 
 	private static runningSet: Set<Animator<any>> = new Set()
-	private static _time = 0
 	private static _delta = 0
 
 	private startTime: number
@@ -63,6 +62,9 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	private _progress: number
 	public readonly parameters: P
 	public readonly onStateChange: Listener<(state: string) => void>
+	public timeScale: number
+	private _time: number
+	private _delta: number
 
 	public static createEasingFunction(x1: number, y1: number, x2: number, y2: number) {
 		return BezierEasing(x1, y1, x2, y2)
@@ -70,10 +72,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 
 	public static easeValue(value: number, func: keyof typeof Animator["transitions"]) {
 		return this.transitions[func](value)
-	}
-
-	public static get time() {
-		return this._time
 	}
 
 	public static get delta() {
@@ -116,9 +114,12 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		this._running = false
 		this._paused = false
 		this._progress = 0
+		this._delta = 0
+		this._time = 0
 		this.startTime = 0
 		this.state = null
 		this.onStateChange = new Listener()
+		this.timeScale = 1
 		if (parameters) {
 			this.parameters = parameters
 		} else {
@@ -188,14 +189,17 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	}
 
 	public static update(delta: number) {
-		Animator._time += delta
 		Animator._delta = delta
 		if (Animator.runningSet.size > 0) {
-			Animator.runningSet.forEach(x => x.update(Animator._time))
+			Animator.runningSet.forEach(x => x.update(delta))
 		}
 	}
 
-	private update(current: number) {
+	public update(delta: number) {
+		const scaledDelta = delta * this.timeScale
+		const current = this._time + scaledDelta
+		this._delta = scaledDelta
+		this._time = current
 		if (!this._started) {
 			throw new Error("not running")
 		}
@@ -319,6 +323,14 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		return this.state
 	}
 
+	public get time() {
+		return this._time
+	}
+
+	public get delta() {
+		return this._delta
+	}
+
 	public waitForState(query: string | RegExp | ((name: string) => void) = "stop") {
 		if (this._paused && Animator.testState(this.state!.name, query)) {
 			return Promise.resolve()
@@ -327,11 +339,12 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			return Promise.resolve()
 		}
 		return new Promise<void>(resolve => {
-			const callback = this.onStateChange.add(state => {
+			this.onStateChange.add(state => {
 				if (Animator.testState(state, query)) {
-					this.onStateChange.remove(callback)
 					resolve()
+					return Listener.REMOVE
 				}
+				return
 			})
 		})
 	}

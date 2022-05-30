@@ -1,6 +1,6 @@
 {
 	"name": "@md5crypt/animator",
-	"version": "1.1.5",
+	"version": "1.2.0",
 	"description": "unity style animators for js",
 	"main": "lib/Animator.js",
 	"types": "lib/Animator.d.ts",
@@ -28,7 +28,7 @@
 	},
 	"homepage": "https://github.com/md5crypt/animator#readme",
 	"dependencies": {
-		"@md5crypt/listener": "^1.0.0",
+		"@md5crypt/listener": "^1.1.0",
 		"bezier-easing": "^2.1.0"
 	},
 	"keywords": [
