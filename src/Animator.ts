@@ -20,8 +20,7 @@ export type TransitionName = keyof typeof Animator["transitions"]
 type InternalState<P, T extends string> = State<P, T> & {name: string}
 
 export class Animator<P extends Record<string, any> = Record<string, any>, T extends string = string> {
-	public readonly states: Record<T, InternalState<P, T>>
-
+	public static detached = false
 	public static readonly transitions = {
 		// easeIn
 		easeIn: BezierEasing(0.43, 0, 1, 1),
@@ -52,20 +51,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	private static runningSet: Set<Animator<any>> = new Set()
 	private static _delta = 0
 
-	private startTime: number
-
-	private state: InternalState<P, T> | null
-	private animating: boolean
-	private _running: boolean
-	private _started: boolean
-	private _paused: boolean
-	private _progress: number
-	public readonly parameters: P
-	public readonly onStateChange: Listener<(state: string) => void>
-	public timeScale: number
-	private _time: number
-	private _delta: number
-
 	public static createEasingFunction(x1: number, y1: number, x2: number, y2: number) {
 		return BezierEasing(x1, y1, x2, y2)
 	}
@@ -88,13 +73,32 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		}
 	}
 
-	public constructor(states: Record<T, Partial<State<P, T>>>, parameters?: P) {
+	public readonly states: Record<T, InternalState<P, T>>
+	public readonly parameters: P
+	public readonly onStateChange: Listener<(state: string) => void>
+
+	public detached: boolean
+	public timeScale: number
+
+	private _startTime: number
+
+	private _state: InternalState<P, T> | null
+	private _animating: boolean
+	private _running: boolean
+	private _started: boolean
+	private _paused: boolean
+	private _progress: number
+	private _time: number
+	private _delta: number
+
+	public constructor(states: Record<T, Partial<State<P, T>>>, parameters?: P, detached?: boolean) {
 		if ("stop" in states) {
 			throw new Error("a state can not be called 'stop' as it is a reserved name")
 		}
 		if ("pause" in states) {
 			throw new Error("a state can not be called 'pause' as it is a reserved name")
 		}
+		this.detached = detached === undefined ? Animator.detached : detached
 		this.states = {} as any
 		for (const key in states) {
 			this.states[key as T] = {
@@ -109,15 +113,15 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 				...states[key]
 			}
 		}
-		this.animating = false
+		this._animating = false
 		this._started = false
 		this._running = false
 		this._paused = false
 		this._progress = 0
 		this._delta = 0
 		this._time = 0
-		this.startTime = 0
-		this.state = null
+		this._startTime = 0
+		this._state = null
 		this.onStateChange = new Listener()
 		this.timeScale = 1
 		if (parameters) {
@@ -153,7 +157,9 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 
 	public resume() {
 		if (this._paused) {
-			Animator.runningSet.add(this)
+			if (!this.detached) {
+				Animator.runningSet.add(this)
+			}
 			this._paused = false
 		}
 	}
@@ -161,13 +167,15 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	public start(initialState = "initial") {
 		if (!this._started || this._paused) {
 			this._paused = false
-			this.state = this.states[initialState as T]
-			if (!this.state) {
+			this._state = this.states[initialState as T]
+			if (!this._state) {
 				throw new Error(`state initial "${initialState}" not found`)
 			}
 			this._started = true
 			this._running = false
-			Animator.runningSet.add(this)
+			if (!this.detached) {
+				Animator.runningSet.add(this)
+			}
 		}
 		return this
 	}
@@ -178,8 +186,8 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			Animator.runningSet.delete(this)
 			this._started = false
 			this._running = false
-			if (this.state) {
-				this.state = null
+			if (this._state) {
+				this._state = null
 				if (!noStateChangeEvent) {
 					this.onStateChange.invoke("stop")
 				}
@@ -205,15 +213,15 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		}
 		if (!this._running) {
 			this._running = true
-			this.startTime = current
-			this.animating = true
+			this._startTime = current
+			this._animating = true
 			this._started = true
 			this._progress = 0
-			if (!this.state) {
+			if (!this._state) {
 				throw new Error("state is missing")
 			}
-			this.state.setup?.(this, this.parameters)
-			this.onStateChange.invoke(this.state.name)
+			this._state.setup?.(this, this.parameters)
+			this.onStateChange.invoke(this._state.name)
 		}
 		let iterationLimit = 1024
 		while (true) {
@@ -221,17 +229,17 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			if (!iterationLimit) {
 				throw new Error("animator iteration limit reached, endless loop?")
 			}
-			const state = this.state!
-			if (state.delayBefore > (current - this.startTime)) {
+			const state = this._state!
+			if (state.delayBefore > (current - this._startTime)) {
 				return
 			}
-			let progress = state.duration ? (current - (this.startTime + state.delayBefore)) / state.duration : Infinity
-			if (!this.animating || (progress >= 1)) {
+			let progress = state.duration ? (current - (this._startTime + state.delayBefore)) / state.duration : Infinity
+			if (!this._animating || (progress >= 1)) {
 				if (this._progress != 1) {
 					this._progress = 1
 					state.animation(this, this.parameters)
 				}
-				if (current - (this.startTime + state.delayBefore + state.duration) < state.delayAfter) {
+				if (current - (this._startTime + state.delayBefore + state.duration) < state.delayAfter) {
 					return
 				}
 				const nextStateName = typeof state.transition == "string" ? state.transition : state.transition(this, this.parameters)
@@ -239,7 +247,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 					this.stop()
 					return
 				} else if (nextStateName == "pause") {
-					this.animating = false
+					this._animating = false
 					this.pause()
 					return
 				} else if (nextStateName) {
@@ -248,26 +256,26 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 						throw new Error(`could not find state ${nextStateName}`)
 					}
 					this._progress = 0
-					if (this.animating && state.overflow) {
-						this.startTime += state.duration + state.delayBefore + state.delayAfter
+					if (this._animating && state.overflow) {
+						this._startTime += state.duration + state.delayBefore + state.delayAfter
 					} else {
-						this.startTime = current
+						this._startTime = current
 					}
-					this.state = nextState
+					this._state = nextState
 					nextState.setup?.(this, this.parameters)
 					this.onStateChange.invoke(nextStateName)
 					// the callback could have called stop() or pause()
 					if (!this._started || this.paused) {
 						return
 					}
-					this.animating = true
+					this._animating = true
 					continue
 				} else if (state.loop && state.duration) {
 					this._progress = 0
-					this.startTime += state.duration + state.delayAfter
+					this._startTime += state.duration + state.delayAfter
 					continue
 				} else {
-					this.animating = false
+					this._animating = false
 				}
 			} else {
 				this._progress = progress
@@ -286,15 +294,15 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 							throw new Error(`could not find state ${nextStateName}`)
 						}
 						this._progress = 0
-						this.startTime = current
-						this.state = nextState
+						this._startTime = current
+						this._state = nextState
 						nextState.setup?.(this, this.parameters)
 						this.onStateChange.invoke(nextStateName)
 						// the callback could have called stop()
 						if (!this._started) {
 							return
 						}
-						this.animating = true
+						this._animating = true
 						continue
 					}
 				}
@@ -317,10 +325,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	}
 
 	public get currentState() {
-		if (!this.state) {
+		if (!this._state) {
 			throw new Error("not running")
 		}
-		return this.state
+		return this._state
 	}
 
 	public get time() {
@@ -332,10 +340,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	}
 
 	public waitForState(query: string | RegExp | ((name: string) => void) = "stop") {
-		if (this._paused && Animator.testState(this.state!.name, query)) {
+		if (this._paused && Animator.testState(this._state!.name, query)) {
 			return Promise.resolve()
 		}
-		if (Animator.testState(this.state ? this.state.name : "stop", query)) {
+		if (Animator.testState(this._state ? this._state.name : "stop", query)) {
 			return Promise.resolve()
 		}
 		return new Promise<void>(resolve => {
