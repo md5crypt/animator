@@ -1,6 +1,6 @@
 {
 	"name": "@md5crypt/animator",
-	"version": "1.2.1",
+	"version": "1.2.2",
 	"description": "unity style animators for js",
 	"main": "lib/Animator.js",
 	"types": "lib/Animator.d.ts",
