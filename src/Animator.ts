@@ -3,7 +3,7 @@
 import * as BezierEasing from "bezier-easing"
 import Listener from "@md5crypt/listener"
 
-export interface State<P, T extends string> {
+export interface State<P extends Record<string, any>, T extends string> {
 	duration: number
 	delayBefore: number
 	delayAfter: number
@@ -17,7 +17,7 @@ export interface State<P, T extends string> {
 
 export type TransitionName = keyof typeof Animator["transitions"]
 
-type InternalState<P, T extends string> = State<P, T> & {name: string}
+type InternalState<P extends Record<string, any>, T extends string> = State<P, T> & {name: string}
 
 export class Animator<P extends Record<string, any> = Record<string, any>, T extends string = string> {
 	public static detached = false

@@ -1,6 +1,6 @@
 {
 	"name": "@md5crypt/animator",
-	"version": "1.2.3",
+	"version": "1.2.4",
 	"description": "unity style animators for js",
 	"main": "lib/Animator.js",
 	"types": "lib/Animator.d.ts",
@@ -40,6 +40,6 @@
 		"@typescript-eslint/eslint-plugin": "^5.17.0",
 		"@typescript-eslint/parser": "^5.17.0",
 		"eslint": "^8.12.0",
-		"typescript": "^4.6.3"
+		"typescript": "^4.8.3"
 	}
 }
