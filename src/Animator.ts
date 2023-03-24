@@ -43,9 +43,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		easeOutCircular: BezierEasing(0.075, 0.82, 0.165, 1),
 		easeOutBackward: BezierEasing(0.175, 0.885, 0.32, 1.275),
 		// other
-		linear: (x: number) => x,
 		easeInOut: BezierEasing(0.43, 0, 0.58, 1),
-		easeInOutBackward: BezierEasing(0.68, -0.55, 0.265, 1.55)
+		easeInOutBackward: BezierEasing(0.68, -0.55, 0.265, 1.55),
+		linear: (x: number) => x,
+		step: (x: number) => x == 1 ? 1 : 0
 	} as const
 
 	private static runningSet: Set<Animator<any>> = new Set()
@@ -207,6 +208,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 				throw new Error("state is missing")
 			}
 			this._state.setup?.(this, this.parameters)
+			// the callback could have called stop() or pause()
+			if (!this._started || this.paused) {
+				return
+			}
 			this.onStateChange.invoke(this._state.name)
 		}
 		let iterationLimit = 1024
@@ -250,11 +255,11 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 					}
 					this._state = nextState
 					nextState.setup?.(this, this.parameters)
-					this.onStateChange.invoke(nextStateName)
 					// the callback could have called stop() or pause()
 					if (!this._started || this.paused) {
 						return
 					}
+					this.onStateChange.invoke(nextStateName)
 					this._animating = true
 					continue
 				} else if (state.loop && state.duration) {
