@@ -20,7 +20,6 @@ export type TransitionName = keyof typeof Animator["transitions"]
 type InternalState<P extends Record<string, any>, T extends string> = State<P, T> & {name: string}
 
 export class Animator<P extends Record<string, any> = Record<string, any>, T extends string = string> {
-	public static detached = false
 	public static readonly transitions = {
 		// easeIn
 		easeIn: BezierEasing(0.43, 0, 1, 1),
@@ -60,6 +59,13 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		return this.transitions[func](value)
 	}
 
+	public static update(delta: number) {
+		Animator._delta = delta
+		if (Animator.runningSet.size > 0) {
+			Animator.runningSet.forEach(x => x.update(delta))
+		}
+	}
+
 	public static get delta() {
 		return this._delta
 	}
@@ -78,7 +84,7 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	public readonly parameters: P
 	public readonly onStateChange: Listener<(state: string) => void>
 
-	public detached: boolean
+	public runningSet: Set<Animator<any>> | null
 	public timeScale: number
 
 	private _startTime: number
@@ -93,14 +99,14 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	private _time: number
 	private _delta: number
 
-	public constructor(states: Record<T, Partial<State<P, T>>>, parameters?: P, detached?: boolean) {
+	public constructor(states: Record<T, Partial<State<P, T>>>, parameters?: P, runningSet: Set<Animator<any>> | null = Animator.runningSet) {
 		if ("stop" in states) {
 			throw new Error("a state can not be called 'stop' as it is a reserved name")
 		}
 		if ("pause" in states) {
 			throw new Error("a state can not be called 'pause' as it is a reserved name")
 		}
-		this.detached = detached === undefined ? Animator.detached : detached
+		this.runningSet = runningSet
 		this.states = {} as any
 		for (const key in states) {
 			this.states[key as T] = {
@@ -136,7 +142,9 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 
 	public pause() {
 		if (this._started && !this._paused) {
-			Animator.runningSet.delete(this)
+			if (this.runningSet) {
+				this.runningSet.delete(this)
+			}
 			this._paused = true
 			this.onStateChange.invoke("pause")
 		}
@@ -144,8 +152,8 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 
 	public resume() {
 		if (this._paused) {
-			if (!this.detached) {
-				Animator.runningSet.add(this)
+			if (this.runningSet) {
+				this.runningSet.add(this)
 			}
 			this._paused = false
 		}
@@ -160,8 +168,8 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			}
 			this._started = true
 			this._running = false
-			if (!this.detached) {
-				Animator.runningSet.add(this)
+			if (this.runningSet) {
+				this.runningSet.add(this)
 			}
 		}
 		return this
@@ -169,8 +177,10 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 
 	public stop(noStateChangeEvent = false) {
 		if (this._started) {
+			if (this.runningSet) {
+				this.runningSet.delete(this)
+			}
 			this._paused = false
-			Animator.runningSet.delete(this)
 			this._started = false
 			this._running = false
 			if (this._state) {
@@ -181,13 +191,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			}
 		}
 		return this
-	}
-
-	public static update(delta: number) {
-		Animator._delta = delta
-		if (Animator.runningSet.size > 0) {
-			Animator.runningSet.forEach(x => x.update(delta))
-		}
 	}
 
 	public update(delta: number) {
@@ -262,8 +265,12 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 					this.onStateChange.invoke(nextStateName)
 					this._animating = true
 					continue
-				} else if (state.loop && state.duration) {
+				} else if (state.loop) {
 					this._progress = 0
+					if (state.duration <= 0) {
+						this._startTime = current - state.delayBefore
+						return
+					}
 					this._startTime += state.duration + state.delayAfter
 					continue
 				} else {
