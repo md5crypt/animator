@@ -94,7 +94,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 	private _running: boolean
 	private _started: boolean
 	private _paused: boolean
-	private _lastProgress: number
 	private _progress: number
 	private _time: number
 	private _delta: number
@@ -126,7 +125,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		this._running = false
 		this._paused = false
 		this._progress = 0
-		this._lastProgress = 0
 		this._delta = 0
 		this._time = 0
 		this._startTime = 0
@@ -230,7 +228,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 			let progress = state.duration ? (current - (this._startTime + state.delayBefore)) / state.duration : Infinity
 			if (!this._animating || (progress >= 1)) {
 				if (this._progress != 1) {
-					this._lastProgress = this._progress
 					this._progress = 1
 					state.animation(this, this.parameters)
 				}
@@ -277,7 +274,6 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 					this._animating = false
 				}
 			} else {
-				this._lastProgress = this._progress
 				this._progress = progress
 				state.animation(this, this.parameters)
 				if (state.interrupt) {
@@ -343,12 +339,9 @@ export class Animator<P extends Record<string, any> = Record<string, any>, T ext
 		return this._progress
 	}
 
-	public get progressDelta() {
-		return this.progress - this._lastProgress
-	}
-
-	public get progressDeltaMs() {
-		return (this.progress - this._lastProgress) * this.currentState.duration
+	public get progressMs() {
+		const state = this.currentState
+		return Math.min(this._time - (this._startTime + state.delayBefore), state.duration)
 	}
 
 	public get started() {
